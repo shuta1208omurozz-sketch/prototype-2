@@ -363,15 +363,19 @@ function setAspectRatio(ratio) {
   });
 
   // カメラが起動中なら再起動して制約を適用
+  // プレビュー枠の見た目を更新
+  const vf = $("cam-vf");
+  if (vf) vf.style.aspectRatio = ratio;
+
   if (camActive) {
-    startCam();
+    startCam(); // カメラがアクティブなら再起動して制約を適用
   } else {
-    // プレビュー枠の見た目だけ更新
-    const vf = $('cam-vf');
-    if (vf) vf.style.aspectRatio = ratio;
+    // カメラが非アクティブの場合でも、設定は保存しUIは更新
+    applyCfgToUI(); // main.jsの関数を呼び出し、比率ボタンの表示を更新
   }
   
   console.log(`[Camera] Aspect ratio set to: ${ratio}`);
+  showToast(`ASPECT: ${ratio}`, 'ok', 1000);
 }
 
 /**
@@ -379,29 +383,94 @@ function setAspectRatio(ratio) {
  *  EVENT LISTENERS & INITIALIZATION
  * ══════════════════════════════════════════════════════════════════════════════
  */
-document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener("DOMContentLoaded", () => {
   // シャッターボタン
-  const shutter = $('btn-shutter');
+  const shutter = $("btn-shutter");
   if (shutter) shutter.onclick = takePhoto;
-  
+
+  // アスペクト比切り替え用の定数
+  const RATIOS_ARRAY = ['4/3', '16/9', '21/9'];
+  let currentRatioIdx = RATIOS_ARRAY.indexOf(cfg.aspectRatio);
+  if (currentRatioIdx === -1) currentRatioIdx = 1; // デフォルト16/9
+
+  // シャッターボタンでのスワイプによるアスペクト比変更 [NEW FEATURE]
+  const camControls = $("cam-controls"); // スワイプ検出エリア
+  let startX = 0;
+  let isSwiping = false;
+
+  if (camControls) {
+    camControls.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      isSwiping = true;
+    }, { passive: true });
+
+    camControls.addEventListener('touchmove', (e) => {
+      if (!isSwiping) return;
+      // スワイプ中のフィードバックなどがあればここに実装
+    }, { passive: true });
+
+    camControls.addEventListener('touchend', (e) => {
+      if (!isSwiping) return;
+      const endX = e.changedTouches[0].clientX;
+      const diffX = startX - endX; // 正の値で左スワイプ、負の値で右スワイプ
+      const SWIPE_THRESHOLD = 50; // スワイプと判定する閾値 (px)
+
+      if (Math.abs(diffX) > SWIPE_THRESHOLD) {
+        if (diffX > 0) {
+          // 左スワイプ: 次の比率へ (例: 4:3 -> 16:9 -> 21:9)
+          currentRatioIdx = (currentRatioIdx + 1) % RATIOS_ARRAY.length;
+        } else {
+          // 右スワイプ: 前の比率へ (例: 21:9 -> 16:9 -> 4:3)
+          currentRatioIdx = (currentRatioIdx - 1 + RATIOS_ARRAY.length) % RATIOS_ARRAY.length;
+        }
+        setAspectRatio(RATIOS_ARRAY[currentRatioIdx]);
+      }
+      isSwiping = false;
+    }, { passive: true });
+  } 
   // トーチボタン
   const torch = $('btn-torch');
   if (torch) torch.onclick = toggleTorch;
   
   // 再試行ボタン
   const retry = $('cam-retry');
-  if (retry) retry.onclick = startCam;
-
-  // ズームスライダー
-  const zoom = $('zoom-slider');
-  if (zoom) {
-    zoom.oninput = (e) => applyZoom(parseFloat(e.target.value));
-  }
-
-  // アスペクト比ボタン
-  document.querySelectorAll('.ratio-btn').forEach(btn => {
-    btn.onclick = () => setAspectRatio(btn.dataset.r);
+  if (retry) retry.onclick =   // ズームスライダーの初期化とイベントリスナーはDOMContentLoaded内で処理済み
+  // applyZoom関数は廃止し、直接track.applyConstraintsを呼び出す  // アスペクト比ボタン
+  document.querySelectorAll(".ratio-btn").forEach(btn => {
+    btn.onclick = () => {
+      // ボタンクリック時は直接比率を設定
+      setAspectRatio(btn.dataset.r);
+      // スワイプ用のインデックスも更新
+      currentRatioIdx = RATIOS_ARRAY.indexOf(btn.dataset.r);
+    };
   });
+
+  // ズームスライダー [NEW FEATURE]
+  const zoomSlider = $("zoom-slider");
+  const zoomLevelDisplay = $("zoom-level");
+
+  if (zoomSlider && zoomLevelDisplay) {
+    // カメラのcapabilitiesが取得できてから最大ズーム値を設定
+    // 初期値は1.0x
+    zoomSlider.value = 1.0;
+    zoomLevelDisplay.textContent = `1.0x`;
+
+    zoomSlider.oninput = async (e) => {
+      const zoomValue = parseFloat(e.target.value);
+      if (track) {
+        try {
+          await track.applyConstraints({
+            advanced: [{ zoom: zoomValue }]
+          });
+          zoomLevelDisplay.textContent = `${zoomValue.toFixed(1)}x`;
+          cfg.zoom = zoomValue; // 設定にズーム値を保存
+        } catch (err) {
+          console.error("Failed to apply zoom constraints:", err);
+          showToast("ズーム変更失敗", "error", 2000);
+        }
+      }
+    };
+  }
 
   // 画質ボタン
   document.querySelectorAll('.quality-btn').forEach(btn => {
