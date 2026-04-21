@@ -383,7 +383,6 @@ document.querySelectorAll('.tab').forEach(btn => {
       showToast('✓ グループを移動しました', 'ok');
     }
   });
-}
 
 /* ════ 初期化処理 ════ */
 async function init() {
