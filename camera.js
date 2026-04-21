@@ -24,10 +24,23 @@
  * @returns {Promise<void>}
  */
 async function startCam() {
-  // 既存のストリームがあればクリーンアップ
+// 二重起動防止用のフラグ
+let isStarting = false;
+
+async function startCam() {
+  // すでに起動処理中なら、今の処理が終わるまで待つか無視する
+  if (isStarting) return; 
+  isStarting = true;
+
+  // 1. 既存のストリームを完全に停止し、ビデオ要素を空にする
   stopCam();
+  const video = $('cam-video');
+  if (video) {
+    video.pause();
+    video.srcObject = null;
+    video.load(); // リロードして状態をリセット
+  }
   
-  // UI状態の更新
   camActive = true;
   const ph = $('cam-ph');
   const txt = $('cam-ph-txt');
@@ -37,50 +50,44 @@ async function startCam() {
   if (txt) txt.textContent = 'カメラ初期化中...';
   if (errBox) errBox.style.display = 'none';
 
-  // 指定された画質のベース解像度を取得
   const qBase = CAM_QUALITY[cfg.camQuality] || CAM_QUALITY.mid;
 
-  /** @type {MediaStreamConstraints} */
   const constraints = {
     video: {
       facingMode: facingMode,
       width: { ideal: qBase.width },
-      height: { ideal: qBase.height },
-      // 【修正】aspectRatioを削除。これによりブラウザの勝手な切り抜きを防ぎ、
-      // レンズが捉えている最大範囲（端っこまで）を取得します。
+      height: { ideal: qBase.height }
     },
     audio: false
   };
-
-  console.log('[Camera] Starting with full lens view constraints');
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     camStream = stream;
     
-    const video = $('cam-video');
     if (video) {
       video.srcObject = stream;
-      
-      // 【追加】レンズの端まで全て表示し、黒帯を出して全体を収める
       video.style.objectFit = 'contain';
       video.style.backgroundColor = '#000';
       
-      video.onloadedmetadata = () => {
-        if (ph) ph.style.display = 'none';
-        
-        const vf = $('cam-vf');
-        if (vf) {
-          vf.style.aspectRatio = cfg.aspectRatio;
-          // 【追加】枠からはみ出る部分（端っこ）も見えるようにする
-          vf.style.overflow = 'visible';
+      // play()の割り込みエラーを防ぐための処理
+      video.onloadedmetadata = async () => {
+        try {
+          await video.play(); // 読み込み完了を待ってから再生
+          if (ph) ph.style.display = 'none';
+          
+          const vf = $('cam-vf');
+          if (vf) {
+            vf.style.aspectRatio = cfg.aspectRatio;
+            vf.style.overflow = 'visible';
+          }
+          
+          camTrack = stream.getVideoTracks()[0];
+          initCamFeatures(camTrack);
+          showCropOverlay(cfg.aspectRatio);
+        } catch (playErr) {
+          console.warn('[Camera] Play interrupted (Safe to ignore):', playErr);
         }
-        
-        camTrack = stream.getVideoTracks()[0];
-        initCamFeatures(camTrack);
-        
-        // 起動時にガイドを表示
-        showCropOverlay(cfg.aspectRatio);
       };
     }
     
@@ -89,30 +96,10 @@ async function startCam() {
   } catch (err) {
     console.error('[Camera] Start Error:', err);
     handleCamError(err);
+  } finally {
+    isStarting = false; // 処理完了
   }
 }
-function stopCam() {
-  if (camStream) {
-    camStream.getTracks().forEach(track => {
-      track.stop();
-      console.log(`[Camera] Track stopped: ${track.label}`);
-    });
-    camStream = null;
-  }
-  
-  const video = $('cam-video');
-  if (video) {
-    video.srcObject = null;
-  }
-  
-  camActive = false;
-  camTrack = null;
-}
-
-/**
- * カメラの高度な機能（ズーム、トーチ等）を初期化します。
- * @param {MediaStreamTrack} track - ビデオトラック
- */
 async function initCamFeatures(track) {
   if (!track) return;
   
