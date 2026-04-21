@@ -293,6 +293,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
 .merge-bar { display: none; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--accent-20); background: var(--accent-10); flex-shrink: 0; }
 .merge-bar.on { display: flex; }
 .merge-bar-txt { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--accent); flex: 1; }
+.merge-sel-preview { display: flex; gap: 3px; align-items: center; flex-shrink: 0; }
+.merge-sel-preview img { width: 28px; height: 28px; object-fit: cover; border: 1px solid var(--accent); opacity: 0.85; }
 .btn-merge-exec { padding: 7px 14px; background: var(--accent); color: #0a0c0f; border: none; font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
 .btn-merge-exec:disabled { opacity: .4; cursor: default; }
 .btn-merge-cancel { padding: 7px 10px; background: transparent; border: 1px solid #2a3a4a; color: #4a6a8a; font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -531,7 +533,12 @@ input:checked + .toggle-slider:before { transform: translateX(20px); background:
 
 /* プレビュー枠の動的なアスペクト比変更に対応するためのスタイル */
 #cam-vf {
-  transition: aspect-ratio 0.3s ease-in-out;
+  flex: none;          /* flex:1 を無効化して aspect-ratio を優先 */
+  width: 100%;
+  max-width: 440px;
+  aspect-ratio: 16/9;  /* デフォルト比率 (JSで上書きされる) */
+  min-height: 0;
+  transition: aspect-ratio 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ═══════════════════════════════════════════════════════

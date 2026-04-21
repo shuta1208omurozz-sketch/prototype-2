@@ -276,6 +276,8 @@ function exitMergeMode() {
   mergeSelected = [];
   $('btn-merge-mode').classList.remove('on');
   $('merge-bar').classList.remove('on');
+  const preview = $('merge-sel-preview');
+  if (preview) preview.innerHTML = '';
   renderPhotoGrid();
 }
 
@@ -289,8 +291,26 @@ function toggleMergeSelect(id, itemEl) {
     itemEl.classList.add('selected');
   }
   const n = mergeSelected.length;
-  $('merge-bar-txt').textContent = n === 0 ? '写真をタップして選択（2枚以上）' : n + '枚 選択中';
+  $('merge-bar-txt').textContent = n === 0 ? '写真をタップして選択（2枚以上）' : `${n}枚 選択中`;
   $('btn-merge-exec').disabled = n < 2;
+  // プレビューサムネイル更新
+  const preview = $('merge-sel-preview');
+  if (preview) {
+    preview.innerHTML = '';
+    mergeSelected.slice(0, 5).forEach(sid => {
+      const ph = photos.find(p => p.id === sid);
+      if (!ph) return;
+      const img = document.createElement('img');
+      img.src = ph.thumbDataUrl || ph.dataUrl;
+      preview.appendChild(img);
+    });
+    if (mergeSelected.length > 5) {
+      const more = document.createElement('span');
+      more.style.cssText = 'font-size:9px;color:var(--accent);font-family:monospace;';
+      more.textContent = `+${mergeSelected.length - 5}`;
+      preview.appendChild(more);
+    }
+  }
 }
 
 async function mergeImages(sel, layout) {
@@ -435,13 +455,6 @@ document.addEventListener('DOMContentLoaded', () => {
     selectModeBtn.onclick = () => {
       if (multiSelModePh) exitMultiSelModePh();
       else enterMultiSelModePh();
-    };
-  }
-
-  const mergeExecBtn = $('btn-merge-exec');
-  if (mergeExecBtn) {
-    mergeExecBtn.onclick = () => {
-      if (mergeSelected.length >= 2) $('merge-modal').style.display = 'block';
     };
   }
 });

@@ -299,6 +299,14 @@ function updateCounts() {
   // 写真ギャラリーのステータス
   const phStatusTxt = $('photo-count-txt');
   if (phStatusTxt) phStatusTxt.textContent = `${phCount} / ${maxPh} 枚`;
+
+  // 写真数に応じてボタン表示切り替え
+  const btnSel = $('btn-ph-select-mode');
+  const btnMerge = $('btn-merge-mode');
+  const btnClear = $('btn-photo-clear');
+  if (btnSel)   btnSel.style.display   = phCount >= 1 ? '' : 'none';
+  if (btnMerge) btnMerge.style.display = phCount >= 2 ? '' : 'none';
+  if (btnClear) btnClear.style.display = phCount >= 1 ? '' : 'none';
 }
 
 /**

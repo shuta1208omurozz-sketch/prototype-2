@@ -10,7 +10,6 @@ function updateGroupUI() {
   $('group-mgr-area').style.display = gOn ? 'block' : 'none';
 
   $('btn-bc-select-mode').style.display = bcHistory.length ? '' : 'none';
-  $('btn-ph-select-mode').style.display = photos.length ? '' : 'none';
 
   if (!cfg.groups.includes(cfg.currentGroup)) {
     cfg.currentGroup = cfg.groups.length ? cfg.groups[0] : '';
@@ -79,6 +78,10 @@ function applyCfgToUI() {
   document.querySelectorAll('.ratio-btn').forEach(b => {
     b.classList.toggle('on', b.dataset.r === cfg.aspectRatio);
   });
+
+  // カメラビューファインダーのアスペクト比を反映
+  const camVf = $('cam-vf');
+  if (camVf) camVf.style.aspectRatio = cfg.aspectRatio;
   
   scanMode = cfg.scanFormat;
   camQuality = cfg.camQuality;

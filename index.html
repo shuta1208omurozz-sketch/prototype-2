@@ -187,8 +187,9 @@
       </div>
       <!-- ズームスライダー: 倍率1未満の超広角にも対応 -->
       <div class="zoom-controls">
-        <input type="range" id="zoom-slider" min="0.1" max="10" step="0.1" value="1">
-        <span id="zoom-level">1.0x</span>
+        <span id="uw-label" style="display:none;font-family:'Share Tech Mono',monospace;font-size:9px;color:#ffaa44;letter-spacing:1px;">UW</span>
+        <input type="range" id="zoom-slider" min="0.5" max="5" step="0.05" value="1">
+        <span id="zoom-level">1.00x</span>
       </div>
     </div>
     <div class="thumb-strip-wrap" id="thumb-strip-wrap" style="display:none;">
@@ -233,8 +234,9 @@
       <button class="btn-sm danger" id="btn-photo-clear" style="display:none">全削除</button>
     </div>
     <div class="merge-bar" id="merge-bar">
+      <div class="merge-sel-preview" id="merge-sel-preview"></div>
       <span class="merge-bar-txt" id="merge-bar-txt">写真をタップして選択（2枚以上）</span>
-      <button class="btn-merge-exec" id="btn-merge-exec" disabled>結合する</button>
+      <button class="btn-merge-exec" id="btn-merge-exec" disabled>結合</button>
       <button class="btn-merge-cancel" id="btn-merge-cancel">✕</button>
     </div>
     <div class="multi-sel-bar" id="multi-sel-bar">

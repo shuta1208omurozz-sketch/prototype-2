@@ -131,16 +131,24 @@ async function initCamFeatures(track) {
     const zoomControls = document.querySelector('.zoom-controls');
 
     if (caps.zoom && zoomSlider) {
-      // カメラの実際の対応範囲をスライダーに反映
-      zoomSlider.min = caps.zoom.min;
-      zoomSlider.max = caps.zoom.max;
-      zoomSlider.step = caps.zoom.step || 0.1;
-      // カメラの現在のズーム値をUIに反映
+      // デバイス最小値をそのまま使用（<1.0 の場合は超広角対応）
+      const deviceMin = caps.zoom.min ?? 1;
+      // 最大は実装上限5xにキャップ
+      const deviceMax = Math.min(caps.zoom.max ?? 5, 5);
+      zoomSlider.min = deviceMin;
+      zoomSlider.max = deviceMax;
+      zoomSlider.step = caps.zoom.step || 0.05;
+
+      // 現在のズーム値をUIに反映
       const settings = track.getSettings();
       const currentZoom = settings.zoom || 1;
       zoomSlider.value = currentZoom;
-      if (zoomLevel) zoomLevel.textContent = `${parseFloat(currentZoom).toFixed(1)}x`;
+      if (zoomLevel) zoomLevel.textContent = `${parseFloat(currentZoom).toFixed(2)}x`;
       if (zoomControls) zoomControls.style.display = 'flex';
+
+      // 超広角インジケーター表示
+      const uwLabel = $('uw-label');
+      if (uwLabel) uwLabel.style.display = deviceMin < 1 ? 'inline-block' : 'none';
     } else if (zoomControls) {
       zoomControls.style.display = 'none';
     }
@@ -501,8 +509,13 @@ function setAspectRatio(ratio) {
   
   // 再試行ボタン
   const retry = $('cam-retry');
-  if (retry) retry.onclick =   // ズームスライダーの初期化とイベントリスナーはDOMContentLoaded内で処理済み
-  // applyZoom関数は廃止し、直接track.applyConstraintsを呼び出す  // アスペクト比ボタン
+  if (retry) retry.onclick = startCam;
+
+  // SCANタブへ移動ボタン
+  const gotoScanBtn = $('btn-goto-scan');
+  if (gotoScanBtn) gotoScanBtn.onclick = () => switchTab('scan');
+
+  // アスペクト比ボタン
   document.querySelectorAll(".ratio-btn").forEach(btn => {
     btn.onclick = () => {
       // ボタンクリック時は直接比率を設定
@@ -524,23 +537,20 @@ function setAspectRatio(ratio) {
 
     zoomSlider.oninput = async (e) => {
       const zoomValue = parseFloat(e.target.value);
-      // camTrack を参照（camera.js のグローバル変数）
       if (camTrack) {
         try {
-          await camTrack.applyConstraints({
-            advanced: [{ zoom: zoomValue }]
-          });
+          await camTrack.applyConstraints({ advanced: [{ zoom: zoomValue }] });
         } catch (err) {
-          console.error("Failed to apply zoom constraints:", err);
-          showToast("ズーム変更失敗", "error", 2000);
+          console.error('Failed to apply zoom constraints:', err);
+          showToast('ズーム変更失敗', 'error', 2000);
         }
       }
-      // カメラ起動状態に関わらず、数字とスライダー塗りつぶしを即時更新
-      zoomLevelDisplay.textContent = `${zoomValue.toFixed(1)}x`;
+      // 1x未満は超広角：ラベル色をオレンジに
+      zoomLevelDisplay.textContent = `${zoomValue.toFixed(2)}x`;
+      zoomLevelDisplay.style.color = zoomValue < 1 ? '#ffaa44' : 'var(--accent)';
       cfg.zoom = zoomValue;
-      // スライダーの進捗バー（塗りつぶし）を更新
-      const min = parseFloat(e.target.min) || 0.1;
-      const max = parseFloat(e.target.max) || 10;
+      const min = parseFloat(e.target.min) || 0.5;
+      const max = parseFloat(e.target.max) || 5;
       const pct = ((zoomValue - min) / (max - min)) * 100;
       e.target.style.setProperty('--zoom-progress', pct.toFixed(1) + '%');
     };
