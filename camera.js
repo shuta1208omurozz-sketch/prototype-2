@@ -143,7 +143,13 @@ async function initCamFeatures(track) {
       const settings = track.getSettings();
       const currentZoom = settings.zoom || 1;
       zoomSlider.value = currentZoom;
-      if (zoomLevel) zoomLevel.textContent = `${parseFloat(currentZoom).toFixed(2)}x`;
+      if (zoomLevel) {
+        zoomLevel.textContent = `${parseFloat(currentZoom).toFixed(2)}x`;
+        zoomLevel.style.color = currentZoom < 1 ? '#ffaa44' : 'var(--accent)';
+      }
+      // スライダー塗りつぶし初期化
+      const initPct = ((currentZoom - deviceMin) / (deviceMax - deviceMin)) * 100;
+      zoomSlider.style.setProperty('--zoom-progress', initPct.toFixed(1) + '%');
       if (zoomControls) zoomControls.style.display = 'flex';
 
       // 超広角インジケーター表示
@@ -530,10 +536,11 @@ function setAspectRatio(ratio) {
   const zoomLevelDisplay = $("zoom-level");
 
   if (zoomSlider && zoomLevelDisplay) {
-    // カメラのcapabilitiesが取得できてから最大ズーム値を設定
-    // 初期値は1.0x
-    zoomSlider.value = 1.0;
-    zoomLevelDisplay.textContent = `1.0x`;
+    // 保存済みのズーム値を反映（なければ1.0x）
+    const savedZoom = cfg.zoom || 1.0;
+    zoomSlider.value = savedZoom;
+    zoomLevelDisplay.textContent = `${savedZoom.toFixed(2)}x`;
+    zoomLevelDisplay.style.color = savedZoom < 1 ? '#ffaa44' : 'var(--accent)';
 
     zoomSlider.oninput = async (e) => {
       const zoomValue = parseFloat(e.target.value);
