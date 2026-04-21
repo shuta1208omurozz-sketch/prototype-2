@@ -2,11 +2,11 @@
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════
- *  CAMERA MODULE v4.5 (ULTRA-WIDE & ASPECT-RATIO INTEGRATED)
+ *  CAMERA MODULE v4.6 (ULTRA-WIDE & ASPECT-RATIO INTEGRATED)
  * ══════════════════════════════════════════════════════════════════════════════
  *  このモジュールは、デバイスのカメラデバイスへのアクセス、プレビュー表示、
  *  および静止画のキャプチャを管理します。
- * 
+ *
  *  [主な機能]
  *  - 複数画質設定 (low, mid, high, max)
  *  - 動的アスペクト比切り替え (4:3, 16:9, 21:9)
@@ -14,8 +14,20 @@
  *  - トーチ（フラッシュライト）制御
  *  - クロップ撮影 (プレビュー比率に合わせた正確な切り抜き)
  *  - Android File System Access API を利用した外部保存
+ *
+ *  [v4.5 -> v4.6 変更点]
+ *  - getUserMedia に aspectRatio 制約を追加
+ *    → カメラドライバがネイティブで正しい比率を配信するため
+ *       標準カメラアプリと同等の撮影範囲（画角）が得られる
+ *  - video の objectFit を contain → cover に変更
+ *    → プレビューが黒帯なくファインダー全面に表示される
+ *  - showCropOverlay を cover モード向けに調整
+ *  - 二重定義になっていた startCam の構造を修正
  * ══════════════════════════════════════════════════════════════════════════════
  */
+
+// 二重起動防止フラグ（モジュールスコープに置く）
+let isStarting = false;
 
 /**
  * カメラを起動し、ビデオストリームを開始します。
@@ -24,12 +36,7 @@
  * @returns {Promise<void>}
  */
 async function startCam() {
-// 二重起動防止用のフラグ
-let isStarting = false;
-
-async function startCam() {
-  // すでに起動処理中なら、今の処理が終わるまで待つか無視する
-  if (isStarting) return; 
+  if (isStarting) return;
   isStarting = true;
 
   // 1. 既存のストリームを完全に停止し、ビデオ要素を空にする
@@ -38,25 +45,35 @@ async function startCam() {
   if (video) {
     video.pause();
     video.srcObject = null;
-    video.load(); // リロードして状態をリセット
+    video.load();
   }
-  
+
   camActive = true;
-  const ph = $('cam-ph');
-  const txt = $('cam-ph-txt');
+  const ph    = $('cam-ph');
+  const txt   = $('cam-ph-txt');
   const errBox = $('cam-err');
-  
-  if (ph) ph.style.display = 'flex';
-  if (txt) txt.textContent = 'カメラ初期化中...';
+
+  if (ph)     ph.style.display    = 'flex';
+  if (txt)    txt.textContent     = 'カメラ初期化中...';
   if (errBox) errBox.style.display = 'none';
 
   const qBase = CAM_QUALITY[cfg.camQuality] || CAM_QUALITY.mid;
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // [FIX v4.6] getUserMedia に aspectRatio を追加
+  //   カメラドライバが指定比率でネイティブ配信 → 標準カメラと同じ画角になる
+  //   ※ ブラウザ/デバイスが非対応の場合は無視されるが、その場合でも
+  //      後段の canvas クロップで比率は保証される
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const [arW, arH] = cfg.aspectRatio.split('/').map(Number);
+  const idealAspectRatio = arW / arH;
+
   const constraints = {
     video: {
-      facingMode: facingMode,
-      width: { ideal: qBase.width },
-      height: { ideal: qBase.height }
+      facingMode:   facingMode,
+      width:        { ideal: qBase.width  },
+      height:       { ideal: qBase.height },
+      aspectRatio:  { ideal: idealAspectRatio } // ← 追加
     },
     audio: false
   };
@@ -64,24 +81,31 @@ async function startCam() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     camStream = stream;
-    
+
     if (video) {
       video.srcObject = stream;
-      video.style.objectFit = 'contain';
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // [FIX v4.6] objectFit: contain → cover
+      //   contain: 動画全体をボックス内に収める（上下/左右に黒帯が入る）
+      //   cover:   ボックスを動画で隙間なく埋める（プレビューが実際の撮影範囲と一致）
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      video.style.objectFit       = 'cover';
+      video.style.width           = '100%';
+      video.style.height          = '100%';
       video.style.backgroundColor = '#000';
-      
-      // play()の割り込みエラーを防ぐための処理
+
       video.onloadedmetadata = async () => {
         try {
-          await video.play(); // 読み込み完了を待ってから再生
+          await video.play();
           if (ph) ph.style.display = 'none';
-          
+
           const vf = $('cam-vf');
           if (vf) {
             vf.style.aspectRatio = cfg.aspectRatio;
-            vf.style.overflow = 'visible';
+            vf.style.overflow    = 'hidden'; // cover のためはみ出しを隠す
           }
-          
+
           camTrack = stream.getVideoTracks()[0];
           initCamFeatures(camTrack);
           showCropOverlay(cfg.aspectRatio);
@@ -90,69 +114,64 @@ async function startCam() {
         }
       };
     }
-    
+
     if (scanning) stopScan();
-    
+
   } catch (err) {
     console.error('[Camera] Start Error:', err);
     handleCamError(err);
   } finally {
-    isStarting = false; // 処理完了
+    isStarting = false;
   }
 }
+
 async function initCamFeatures(track) {
   if (!track) return;
-  
+
   try {
     const caps = track.getCapabilities();
     console.log('[Camera] Capabilities:', caps);
 
-    // 1. ズーム制御の有効化（zoom-controls内のスライダーを使用）
-    const zoomSlider = $('zoom-slider');
-    const zoomLevel = $('zoom-level');
+    // 1. ズーム制御の有効化
+    const zoomSlider   = $('zoom-slider');
+    const zoomLevel    = $('zoom-level');
     const zoomControls = document.querySelector('.zoom-controls');
 
     if (caps.zoom && zoomSlider) {
-      // デバイス最小値をそのまま使用（<1.0 の場合は超広角対応）
       const deviceMin = caps.zoom.min ?? 1;
-      // 最大は実装上限5xにキャップ
       const deviceMax = Math.min(caps.zoom.max ?? 5, 5);
-      zoomSlider.min = deviceMin;
-      zoomSlider.max = deviceMax;
+      zoomSlider.min  = deviceMin;
+      zoomSlider.max  = deviceMax;
       zoomSlider.step = caps.zoom.step || 0.05;
 
-      // 現在のズーム値をUIに反映
-      const settings = track.getSettings();
-      const currentZoom = settings.zoom || 1;
-      zoomSlider.value = currentZoom;
+      const settings     = track.getSettings();
+      const currentZoom  = settings.zoom || 1;
+      zoomSlider.value   = currentZoom;
       if (zoomLevel) {
         zoomLevel.textContent = `${parseFloat(currentZoom).toFixed(2)}x`;
         zoomLevel.style.color = currentZoom < 1 ? '#ffaa44' : 'var(--accent)';
       }
-      // スライダー塗りつぶし初期化
       const initPct = ((currentZoom - deviceMin) / (deviceMax - deviceMin)) * 100;
       zoomSlider.style.setProperty('--zoom-progress', initPct.toFixed(1) + '%');
       if (zoomControls) zoomControls.style.display = 'flex';
 
-      // 超広角インジケーター表示
       const uwLabel = $('uw-label');
       if (uwLabel) uwLabel.style.display = deviceMin < 1 ? 'inline-block' : 'none';
     } else if (zoomControls) {
       zoomControls.style.display = 'none';
     }
 
-    // 2. トーチ（ライト）ボタンの表示制御
+    // 2. トーチボタンの表示制御
     const torchBtn = $('btn-torch');
     if (torchBtn) {
-      // 常に表示。端末がトーチ非対応の場合はグレーアウトして無効化
       torchBtn.style.display = 'block';
       if (!caps.torch) {
-        torchBtn.disabled = true;
-        torchBtn.title = 'このデバイスはフラッシュライト非対応';
+        torchBtn.disabled     = true;
+        torchBtn.title        = 'このデバイスはフラッシュライト非対応';
         torchBtn.style.opacity = '0.35';
       } else {
-        torchBtn.disabled = false;
-        torchBtn.title = 'フラッシュライト';
+        torchBtn.disabled     = false;
+        torchBtn.title        = 'フラッシュライト';
         torchBtn.style.opacity = '';
       }
     }
@@ -186,10 +205,10 @@ async function applyZoom(val) {
 async function toggleTorch() {
   if (!camTrack) return;
   try {
-    const settings = camTrack.getSettings();
-    const newState = !settings.torch;
+    const settings  = camTrack.getSettings();
+    const newState  = !settings.torch;
     await camTrack.applyConstraints({ advanced: [{ torch: newState }] });
-    
+
     const btn = $('btn-torch');
     if (btn) {
       btn.classList.toggle('on', newState);
@@ -207,107 +226,97 @@ async function toggleTorch() {
  */
 async function takePhoto() {
   if (!camActive || !camStream) return;
-  
-  const video = $('cam-video');
+
+  const video   = $('cam-video');
   const shutter = $('btn-shutter');
   if (!video || video.readyState < 2) return;
 
-  // 二重撮影防止
   if (shutter) shutter.disabled = true;
 
-  // 1. キャプチャ用Canvasの作成
+  // 1. キャプチャ用 Canvas
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  const ctx    = canvas.getContext('2d', { alpha: false, desynchronized: true });
 
-  // ビデオの本来の解像度
   const vw = video.videoWidth;
   const vh = video.videoHeight;
-  
-  // 指定されたアスペクト比を取得
-  const ratioParts = cfg.aspectRatio.split('/');
+
+  const ratioParts  = cfg.aspectRatio.split('/');
   const targetRatio = parseFloat(ratioParts[0]) / parseFloat(ratioParts[1]);
 
-  // クロップ領域の計算（中央を基準に切り抜き）
+  // クロップ領域の計算（中央基準）
   let sw, sh, sx, sy;
   const videoRatio = vw / vh;
 
   if (videoRatio > targetRatio) {
-    // ビデオの方が横長 -> 左右をカット
+    // ビデオの方が横長 → 左右をカット
     sh = vh;
     sw = vh * targetRatio;
     sx = (vw - sw) / 2;
     sy = 0;
   } else {
-    // ビデオの方が縦長（または一致） -> 上下をカット
+    // ビデオの方が縦長（または一致） → 上下をカット
     sw = vw;
     sh = vw / targetRatio;
     sx = 0;
     sy = (vh - sh) / 2;
   }
 
-  // 出力サイズの設定（画質設定に応じた最大幅を考慮しつつ比率を維持）
-  const maxW = { low: 1024, mid: 1920, high: 2560, max: 4096 }[cfg.camQuality] || 1920;
-  canvas.width = Math.min(sw, maxW);
-  canvas.height = canvas.width / targetRatio;
+  const maxW      = { low: 1024, mid: 1920, high: 2560, max: 4096 }[cfg.camQuality] || 1920;
+  canvas.width    = Math.min(sw, maxW);
+  canvas.height   = canvas.width / targetRatio;
 
-  // 描画実行
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-  // 2. サムネイルの作成（軽量化のため低解像度）
-  const thumbC = document.createElement('canvas');
+  // 2. サムネイル
+  const thumbC    = document.createElement('canvas');
   const thumbSize = 300;
-  thumbC.width = thumbSize;
-  thumbC.height = thumbSize / targetRatio;
+  thumbC.width    = thumbSize;
+  thumbC.height   = thumbSize / targetRatio;
   thumbC.getContext('2d').drawImage(canvas, 0, 0, thumbC.width, thumbC.height);
   const thumbDataUrl = thumbC.toDataURL('image/jpeg', 0.6);
 
-  // 3. 写真オブジェクトの構築
-  const grp = cfg.useGroup ? cfg.currentGroup : '未分類';
+  // 3. 写真オブジェクト構築
+  const grp   = cfg.useGroup ? cfg.currentGroup : '未分類';
   const photo = {
-    id: Date.now() + Math.random(),
-    dataUrl: thumbDataUrl, // 初期表示用（後で高画質に差し替え）
+    id:           Date.now() + Math.random(),
+    dataUrl:      thumbDataUrl,
     thumbDataUrl: thumbDataUrl,
-    timestamp: Date.now(),
-    facingMode: facingMode,
-    aspectRatio: cfg.aspectRatio,
-    group: grp,
-    scannedCode: lastScannedValue
+    timestamp:    Date.now(),
+    facingMode:   facingMode,
+    aspectRatio:  cfg.aspectRatio,
+    group:        grp,
+    scannedCode:  lastScannedValue
   };
 
-  // UIへの即時反映
   photos.unshift(photo);
   updateCounts();
   updateThumbStrip();
   if (activeTab === 'photos') renderPhotoGrid();
 
-  // 視覚効果
   showFlashEffect();
   vibrate([50]);
 
-  // シャッターボタン復帰
   if (shutter) shutter.disabled = false;
 
-  // 4. 非同期での高画質保存処理
+  // 4. 非同期での高画質保存
   setTimeout(async () => {
     try {
-      const qualityMap = { low: 0.7, mid: 0.85, high: 0.92, max: 0.98 };
-      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', qualityMap[cfg.camQuality]));
-      
+      const qualityMap  = { low: 0.7, mid: 0.85, high: 0.92, max: 0.98 };
+      const blob        = await new Promise(res =>
+        canvas.toBlob(res, 'image/jpeg', qualityMap[cfg.camQuality])
+      );
       if (!blob) return;
 
       const finalDataUrl = await blobToDataUrl(blob);
       photo.dataUrl = finalDataUrl;
 
-      // 自動保存（設定されている場合）
       autoSaveToDevice(photo, blob);
-
-      // データベース保存 (storage.js)
       await dbPut(photo);
       await dbPrune(cfg.maxPhotos);
-      
-      console.log(`[Camera] Photo saved. ID: ${photo.id}, Size: ${Math.round(blob.size/1024)}KB`);
+
+      console.log(`[Camera] Photo saved. ID: ${photo.id}, Size: ${Math.round(blob.size / 1024)}KB`);
     } catch (err) {
       console.error('[Camera] Save Error:', err);
     }
@@ -321,7 +330,7 @@ function showFlashEffect() {
   const fl = $('flash');
   if (fl) {
     fl.classList.remove('show');
-    void fl.offsetWidth; // リフロー強制
+    void fl.offsetWidth;
     fl.classList.add('show');
     setTimeout(() => fl.classList.remove('show'), 150);
   }
@@ -332,15 +341,15 @@ function showFlashEffect() {
  * @param {Error} err - 発生したエラーオブジェクト
  */
 function handleCamError(err) {
-  const errBox = $('cam-err');
+  const errBox  = $('cam-err');
   const errBody = $('cam-err-body');
   const errCode = $('cam-err-code');
-  
+
   if (!errBox || !errBody) return;
-  
+
   errBox.style.display = 'flex';
-  errCode.textContent = err.name === 'NotAllowedError' ? 'AUTH_DENIED' : 'DEV_ERR';
-  
+  errCode.textContent  = err.name === 'NotAllowedError' ? 'AUTH_DENIED' : 'DEV_ERR';
+
   let msg = 'カメラにアクセスできません。';
   if (err.name === 'NotAllowedError') {
     msg = 'カメラの使用が許可されていません。ブラウザの設定で許可してください。';
@@ -349,88 +358,71 @@ function handleCamError(err) {
   } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
     msg = 'カメラが他のアプリで使用されている可能性があります。';
   }
-  
+
   errBody.textContent = msg;
   const ph = $('cam-ph');
   if (ph) ph.style.display = 'none';
 }
 
-
 /**
  * アスペクト比切り替え時にクロップ範囲を視覚的に表示します。
- * カメラは常に全センサー領域をストリームするため、
- * 実際に保存される範囲をオーバーレイで示します。
+ *
+ * [v4.6 変更]
+ * objectFit が cover になったため、プレビュー映像はファインダーを
+ * 隙間なく埋めており、プレビュー自体が「保存される範囲」と一致します。
+ * そのため上下マスクは常に 0px（不要）になりますが、関数は残して
+ * ラベル表示と比率ボタンとの連携を維持しています。
+ *
  * @param {string} ratio - '4/3', '16/9', '21/9'
  */
 function showCropOverlay(ratio) {
-  const overlay = $('crop-overlay');
-  const label = $('crop-ratio-label');
-  const maskTop = document.querySelector('.crop-mask-top');
+  const overlay    = $('crop-overlay');
+  const label      = $('crop-ratio-label');
+  const maskTop    = document.querySelector('.crop-mask-top');
   const maskBottom = document.querySelector('.crop-mask-bottom');
 
   if (!overlay) return;
 
   if (label) label.textContent = ratio.replace('/', ':');
 
-  const vf = $('cam-vf');
-  if (!vf) return;
-  const vfW = vf.clientWidth;
-  const vfH = vf.clientHeight;
-
-  const [rw, rh] = ratio.split('/').map(Number);
-  const targetRatio = rw / rh;
-  const vfRatio = vfW / vfH;
-
-  let maskH = 0;
-  if (vfRatio > targetRatio) {
-    const cropH = vfW / targetRatio;
-    maskH = Math.max(0, (vfH - cropH) / 2);
-  }
-
-  // 【修正】真っ黒ではなく「半透明」に。
-  // これにより、横長写真として保存される範囲を教えつつ、レンズの端（外側）も見えます。
-  if (maskTop) {
-    maskTop.style.height = maskH + 'px';
-    maskTop.style.backgroundColor = 'rgba(0,0,0,0.4)'; 
-  }
-  if (maskBottom) {
-    maskBottom.style.height = maskH + 'px';
-    maskBottom.style.backgroundColor = 'rgba(0,0,0,0.4)';
-  }
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // [FIX v4.6] objectFit: cover のためマスク高さは常に 0
+  //   カメラ自体が指定比率でストリームするため、ファインダー全体が
+  //   実際に保存される範囲になり、上下マスクは不要です。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (maskTop)    { maskTop.style.height    = '0px'; }
+  if (maskBottom) { maskBottom.style.height = '0px'; }
 
   overlay.style.display = 'flex';
   overlay.classList.add('show');
-
-  // 【修正】自動で非表示にしない（常に範囲を確認できるようにするため）
   clearTimeout(overlay._hideTimer);
-  // overlay._hideTimer = setTimeout(...) <-- 削除またはコメントアウト
 }
+
 function setAspectRatio(ratio) {
   if (cfg.aspectRatio === ratio) return;
-  
+
   cfg.aspectRatio = ratio;
   saveCfg();
-  
-  // UIボタンの更新
+
   document.querySelectorAll('.ratio-btn').forEach(btn => {
     btn.classList.toggle('on', btn.dataset.r === ratio);
   });
 
-  // カメラが起動中なら再起動して制約を適用
-  // プレビュー枠の見た目を更新
-  const vf = $("cam-vf");
-  if (vf) vf.style.aspectRatio = ratio;
+  const vf = $('cam-vf');
+  if (vf) {
+    vf.style.aspectRatio = ratio;
+    vf.style.overflow    = 'hidden'; // cover に合わせてはみ出し非表示
+  }
 
-  // クロップオーバーレイを表示して範囲を視覚化
   showCropOverlay(ratio);
 
   if (camActive) {
-    startCam(); // カメラがアクティブなら再起動して制約を適用
+    // アスペクト比が変わった場合、新しい比率で getUserMedia を呼び直す
+    startCam();
   } else {
-    // カメラが非アクティブの場合でも、設定は保存しUIは更新
-    applyCfgToUI(); // main.jsの関数を呼び出し、比率ボタンの表示を更新
+    applyCfgToUI();
   }
-  
+
   console.log(`[Camera] Aspect ratio set to: ${ratio}`);
   showToast(`ASPECT: ${ratio}`, 'ok', 1000);
 }
@@ -440,81 +432,74 @@ function setAspectRatio(ratio) {
  *  EVENT LISTENERS & INITIALIZATION
  * ══════════════════════════════════════════════════════════════════════════════
  */
-  document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener('DOMContentLoaded', () => {
   // シャッターボタン
-  const shutter = $("btn-shutter");
+  const shutter = $('btn-shutter');
   if (shutter) shutter.onclick = takePhoto;
 
-  // アスペクト比切り替え用の定数
-  const RATIOS_ARRAY = ['4/3', '16/9', '21/9'];
-  let currentRatioIdx = RATIOS_ARRAY.indexOf(cfg.aspectRatio);
-  if (currentRatioIdx === -1) currentRatioIdx = 1; // デフォルト16/9
+  // アスペクト比配列
+  const RATIOS_ARRAY   = ['4/3', '16/9', '21/9'];
+  let currentRatioIdx  = RATIOS_ARRAY.indexOf(cfg.aspectRatio);
+  if (currentRatioIdx === -1) currentRatioIdx = 1; // デフォルト 16/9
 
-  // シャッターボタンでのスワイプによるアスペクト比変更 [NEW FEATURE]
-  const camControls = $("cam-controls"); // スワイプ検出エリア
-  let startX = 0;
-  let isSwiping = false;
+  // スワイプによるアスペクト比変更
+  const camControls = $('cam-controls');
+  let startX        = 0;
+  let isSwiping     = false;
 
   if (camControls) {
     camControls.addEventListener('touchstart', (e) => {
-      startX = e.touches[0].clientX;
+      startX    = e.touches[0].clientX;
       isSwiping = true;
     }, { passive: true });
 
-    camControls.addEventListener('touchmove', (e) => {
-      if (!isSwiping) return;
-      // スワイプ中のフィードバックなどがあればここに実装
-    }, { passive: true });
+    camControls.addEventListener('touchmove', () => {}, { passive: true });
 
     camControls.addEventListener('touchend', (e) => {
       if (!isSwiping) return;
-      const endX = e.changedTouches[0].clientX;
-      const diffX = startX - endX; // 正の値で左スワイプ、負の値で右スワイプ
-      const SWIPE_THRESHOLD = 50; // スワイプと判定する閾値 (px)
+      const endX            = e.changedTouches[0].clientX;
+      const diffX           = startX - endX;
+      const SWIPE_THRESHOLD = 50;
 
       if (Math.abs(diffX) > SWIPE_THRESHOLD) {
         if (diffX > 0) {
-          // 左スワイプ: 前の比率へ (例: 21:9 -> 16:9 -> 4:3)
           currentRatioIdx = (currentRatioIdx - 1 + RATIOS_ARRAY.length) % RATIOS_ARRAY.length;
         } else {
-          // 右スワイプ: 次の比率へ (例: 4:3 -> 16:9 -> 21:9)
           currentRatioIdx = (currentRatioIdx + 1) % RATIOS_ARRAY.length;
         }
         setAspectRatio(RATIOS_ARRAY[currentRatioIdx]);
       }
       isSwiping = false;
     }, { passive: true });
-  } 
+  }
+
   // トーチボタン
   const torch = $('btn-torch');
   if (torch) torch.onclick = toggleTorch;
-  
+
   // 再試行ボタン
   const retry = $('cam-retry');
   if (retry) retry.onclick = startCam;
 
-  // SCANタブへ移動ボタン
+  // SCANタブ移動ボタン
   const gotoScanBtn = $('btn-goto-scan');
   if (gotoScanBtn) gotoScanBtn.onclick = () => switchTab('scan');
 
   // アスペクト比ボタン
-  document.querySelectorAll(".ratio-btn").forEach(btn => {
+  document.querySelectorAll('.ratio-btn').forEach(btn => {
     btn.onclick = () => {
-      // ボタンクリック時は直接比率を設定
       setAspectRatio(btn.dataset.r);
-      // スワイプ用のインデックスも更新
       currentRatioIdx = RATIOS_ARRAY.indexOf(btn.dataset.r);
     };
   });
 
-  // ズームスライダー [NEW FEATURE]
-  const zoomSlider = $("zoom-slider");
-  const zoomLevelDisplay = $("zoom-level");
+  // ズームスライダー
+  const zoomSlider       = $('zoom-slider');
+  const zoomLevelDisplay = $('zoom-level');
 
   if (zoomSlider && zoomLevelDisplay) {
-    // 保存済みのズーム値を反映（なければ1.0x）
-    const savedZoom = cfg.zoom || 1.0;
-    zoomSlider.value = savedZoom;
+    const savedZoom         = cfg.zoom || 1.0;
+    zoomSlider.value        = savedZoom;
     zoomLevelDisplay.textContent = `${savedZoom.toFixed(2)}x`;
     zoomLevelDisplay.style.color = savedZoom < 1 ? '#ffaa44' : 'var(--accent)';
 
@@ -528,7 +513,6 @@ function setAspectRatio(ratio) {
           showToast('ズーム変更失敗', 'error', 2000);
         }
       }
-      // 1x未満は超広角：ラベル色をオレンジに
       zoomLevelDisplay.textContent = `${zoomValue.toFixed(2)}x`;
       zoomLevelDisplay.style.color = zoomValue < 1 ? '#ffaa44' : 'var(--accent)';
       cfg.zoom = zoomValue;
