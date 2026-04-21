@@ -37,30 +37,24 @@ async function startCam() {
   if (txt) txt.textContent = 'カメラ初期化中...';
   if (errBox) errBox.style.display = 'none';
 
-  // 1. カメラ制約の構築
-  // 指定された画質(Quality)のベース解像度を取得
+  // 指定された画質のベース解像度を取得
   const qBase = CAM_QUALITY[cfg.camQuality] || CAM_QUALITY.mid;
-  
-  // アスペクト比の数値を算出
-  const ratioParts = cfg.aspectRatio.split('/');
-  const ratioValue = parseFloat(ratioParts[0]) / parseFloat(ratioParts[1]);
 
   /** @type {MediaStreamConstraints} */
   const constraints = {
     video: {
       facingMode: facingMode,
-      width: qBase.width,
-      height: qBase.height,
-      // アスペクト比の理想値を設定（ブラウザが最適な解像度を選択するのを助ける）
-      aspectRatio: { ideal: ratioValue }
+      width: { ideal: qBase.width },
+      height: { ideal: qBase.height },
+      // 【修正】aspectRatioを削除。これによりブラウザの勝手な切り抜きを防ぎ、
+      // レンズが捉えている最大範囲（端っこまで）を取得します。
     },
     audio: false
   };
 
-  console.log('[Camera] Starting with constraints:', constraints);
+  console.log('[Camera] Starting with full lens view constraints');
 
   try {
-    // 2. メディアデバイスへのアクセス要求
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     camStream = stream;
     
@@ -68,23 +62,28 @@ async function startCam() {
     if (video) {
       video.srcObject = stream;
       
-      // ビデオ要素の準備完了を待つ
+      // 【追加】レンズの端まで全て表示し、黒帯を出して全体を収める
+      video.style.objectFit = 'contain';
+      video.style.backgroundColor = '#000';
+      
       video.onloadedmetadata = () => {
         if (ph) ph.style.display = 'none';
         
-        // プレビュー枠のアスペクト比を更新
         const vf = $('cam-vf');
         if (vf) {
           vf.style.aspectRatio = cfg.aspectRatio;
+          // 【追加】枠からはみ出る部分（端っこ）も見えるようにする
+          vf.style.overflow = 'visible';
         }
         
-        // ズームなどの高度な機能の初期化
         camTrack = stream.getVideoTracks()[0];
         initCamFeatures(camTrack);
+        
+        // 起動時にガイドを表示
+        showCropOverlay(cfg.aspectRatio);
       };
     }
     
-    // スキャナーが動いていれば停止（リソース競合回避）
     if (scanning) stopScan();
     
   } catch (err) {
@@ -92,10 +91,6 @@ async function startCam() {
     handleCamError(err);
   }
 }
-
-/**
- * カメラストリームを安全に停止し、リソースを解放します。
- */
 function stopCam() {
   if (camStream) {
     camStream.getTracks().forEach(track => {
@@ -388,47 +383,41 @@ function showCropOverlay(ratio) {
 
   if (!overlay) return;
 
-  // ラベルを更新（例: "16/9" → "16:9"）
   if (label) label.textContent = ratio.replace('/', ':');
 
-  // ビューファインダーのサイズを取得
   const vf = $('cam-vf');
   if (!vf) return;
   const vfW = vf.clientWidth;
   const vfH = vf.clientHeight;
 
-  // 現在のビューファインダーのアスペクト比 vs 選択された比率
   const [rw, rh] = ratio.split('/').map(Number);
   const targetRatio = rw / rh;
   const vfRatio = vfW / vfH;
 
-  // マスク（暗くなる部分）の高さを計算
   let maskH = 0;
   if (vfRatio > targetRatio) {
-    // ビューファインダーの方が横長：上下をマスク
     const cropH = vfW / targetRatio;
     maskH = Math.max(0, (vfH - cropH) / 2);
   }
-  // 縦長の場合は左右がカットされるが、CSSのobject-fit:coverで自動的に表現される
 
-  if (maskTop) maskTop.style.height = maskH + 'px';
-  if (maskBottom) maskBottom.style.height = maskH + 'px';
+  // 【修正】真っ黒ではなく「半透明」に。
+  // これにより、横長写真として保存される範囲を教えつつ、レンズの端（外側）も見えます。
+  if (maskTop) {
+    maskTop.style.height = maskH + 'px';
+    maskTop.style.backgroundColor = 'rgba(0,0,0,0.4)'; 
+  }
+  if (maskBottom) {
+    maskBottom.style.height = maskH + 'px';
+    maskBottom.style.backgroundColor = 'rgba(0,0,0,0.4)';
+  }
 
-  // オーバーレイを表示し、一定時間後に自動的に非表示
   overlay.style.display = 'flex';
   overlay.classList.add('show');
 
+  // 【修正】自動で非表示にしない（常に範囲を確認できるようにするため）
   clearTimeout(overlay._hideTimer);
-  overlay._hideTimer = setTimeout(() => {
-    overlay.classList.remove('show');
-    setTimeout(() => { overlay.style.display = 'none'; }, 400);
-  }, 2000);
+  // overlay._hideTimer = setTimeout(...) <-- 削除またはコメントアウト
 }
-
-/**
- * アスペクト比を切り替えます。
- * @param {string} ratio - '4/3', '16/9', '21/9'
- */
 function setAspectRatio(ratio) {
   if (cfg.aspectRatio === ratio) return;
   
