@@ -102,27 +102,39 @@ function applyCfgToUI() {
   updateGroupUI();
 }
 
-/* ════ イベントリスナー登録 (全体・設定・一括操作等) ════ */
-function bindEvents() {
-  // --- タブ切り替え ---
-  document.querySelectorAll('.tab').forEach(btn => {
-    btn.onclick = () => {
-      const t = btn.dataset.tab;
-      if (t === activeTab) return;
-      document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
-      btn.classList.add('on');
-      $('pg-' + t).classList.add('on');
-      activeTab = t;
-      
-      if (t !== 'scan') stopScan();
-      if (t !== 'camera') stopCam();
-      if (t === 'scan' && cfg.autoStartScan) setTimeout(startScan, 100);
-      if (t === 'camera') setTimeout(startCam, 80);
-      if (t === 'history') { exitMultiSelModeBc(); renderBcList(); }
-      if (t === 'photos') { exitMergeMode(); exitMultiSelModePh(); renderPhotoGrid(); }
-    };
-  });
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.onclick = () => { // 即座に反応させるため async はここでは使わない
+    const t = btn.dataset.tab;
+    if (t === activeTab) return;
+
+    // --- STEP 1: UIを「即座に」切り替える (体感速度を上げる) ---
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+    btn.classList.add('on');
+    $('pg-' + t).classList.add('on');
+    
+    // --- STEP 2: 古いカメラを止める ---
+    stopScan();
+    if (typeof stopCam === 'function') stopCam();
+
+    activeTab = t;
+    
+    // --- STEP 3: わずかな時間差で起動 (ハードウェアのビジーを避ける) ---
+    // 300msはCSSアニメーションの時間とほぼ同じなので、違和感がありません
+    const delay = 300; 
+
+    if (t === 'scan') {
+      setTimeout(() => { if (cfg.autoStartScan) startScan(); }, delay);
+    } else if (t === 'camera') {
+      setTimeout(() => { startCam(); }, delay);
+    } else if (t === 'history') {
+      exitMultiSelModeBc(); renderBcList();
+    } else if (t === 'photos') {
+      exitMergeMode(); exitMultiSelModePh(); renderPhotoGrid();
+    }
+  };
+});
 
   // --- タブ間ワープボタン ---
   // btn-goto-cam, btn-goto-scan, btn-warp-cam は各モジュールで定義済み
