@@ -132,6 +132,18 @@
       <video id="cam-video" muted playsinline autoplay></video>
       <div class="flash" id="flash"></div>
       <div class="focus-ring" id="focus-ring"></div>
+      <!-- アスペクト比クロップ範囲オーバーレイ -->
+      <div id="crop-overlay" class="crop-overlay" style="display:none;">
+        <div class="crop-mask crop-mask-top"></div>
+        <div class="crop-mask crop-mask-bottom"></div>
+        <div class="crop-frame">
+          <div class="crop-corner crop-corner-tl"></div>
+          <div class="crop-corner crop-corner-tr"></div>
+          <div class="crop-corner crop-corner-bl"></div>
+          <div class="crop-corner crop-corner-br"></div>
+          <span id="crop-ratio-label" class="crop-ratio-label">16:9</span>
+        </div>
+      </div>
       <div id="cam-ph" style="display:flex;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#000;">
         <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#4a6a8a" stroke-width="1.5">
           <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
@@ -145,10 +157,6 @@
       <span class="err-code-badge" id="cam-err-code">E000</span>
       <div class="err-body" id="cam-err-body"></div>
       <button class="err-retry" id="cam-retry">↺ 再試行</button>
-    </div>
-    <div id="zoom-row" style="display:none;" class="zoom-row">
-      <span id="zoom-lbl" class="zoom-lbl">1.0×</span>
-      <input type="range" id="zoom-slider" min="0.1" max="5" step="0.1" value="1"/>
     </div>
     <!-- カメラ設定行: 画質とアスペクト比の制御 -->
     <div class="cam-settings-row">

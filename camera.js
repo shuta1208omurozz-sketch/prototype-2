@@ -125,28 +125,40 @@ async function initCamFeatures(track) {
     const caps = track.getCapabilities();
     console.log('[Camera] Capabilities:', caps);
 
-    // 1. ズーム制御の有効化
-    const zoomRow = $('zoom-row');
+    // 1. ズーム制御の有効化（zoom-controls内のスライダーを使用）
     const zoomSlider = $('zoom-slider');
-    const zoomLbl = $('zoom-lbl');
-    
-    if (caps.zoom && zoomRow && zoomSlider) {
-      zoomRow.style.display = 'flex';
+    const zoomLevel = $('zoom-level');
+    const zoomControls = document.querySelector('.zoom-controls');
+
+    if (caps.zoom && zoomSlider) {
+      // カメラの実際の対応範囲をスライダーに反映
       zoomSlider.min = caps.zoom.min;
       zoomSlider.max = caps.zoom.max;
       zoomSlider.step = caps.zoom.step || 0.1;
-      // 現在値を反映
+      // カメラの現在のズーム値をUIに反映
       const settings = track.getSettings();
-      zoomSlider.value = settings.zoom || 1;
-      if (zoomLbl) zoomLbl.textContent = `${parseFloat(zoomSlider.value).toFixed(1)}×`;
-    } else if (zoomRow) {
-      zoomRow.style.display = 'none';
+      const currentZoom = settings.zoom || 1;
+      zoomSlider.value = currentZoom;
+      if (zoomLevel) zoomLevel.textContent = `${parseFloat(currentZoom).toFixed(1)}x`;
+      if (zoomControls) zoomControls.style.display = 'flex';
+    } else if (zoomControls) {
+      zoomControls.style.display = 'none';
     }
 
     // 2. トーチ（ライト）ボタンの表示制御
     const torchBtn = $('btn-torch');
     if (torchBtn) {
-      torchBtn.style.display = caps.torch ? 'block' : 'none';
+      // 常に表示。端末がトーチ非対応の場合はグレーアウトして無効化
+      torchBtn.style.display = 'block';
+      if (!caps.torch) {
+        torchBtn.disabled = true;
+        torchBtn.title = 'このデバイスはフラッシュライト非対応';
+        torchBtn.style.opacity = '0.35';
+      } else {
+        torchBtn.disabled = false;
+        torchBtn.title = 'フラッシュライト';
+        torchBtn.style.opacity = '';
+      }
     }
 
     // 3. 画質設定UIの更新
@@ -165,8 +177,8 @@ async function applyZoom(val) {
   if (!camTrack) return;
   try {
     await camTrack.applyConstraints({ advanced: [{ zoom: val }] });
-    const lbl = $('zoom-lbl');
-    if (lbl) lbl.textContent = `${val.toFixed(1)}×`;
+    const lbl = $('zoom-level');
+    if (lbl) lbl.textContent = `${val.toFixed(1)}x`;
   } catch (e) {
     console.error('[Camera] Zoom error:', e);
   }
@@ -347,6 +359,58 @@ function handleCamError(err) {
   if (ph) ph.style.display = 'none';
 }
 
+
+/**
+ * アスペクト比切り替え時にクロップ範囲を視覚的に表示します。
+ * カメラは常に全センサー領域をストリームするため、
+ * 実際に保存される範囲をオーバーレイで示します。
+ * @param {string} ratio - '4/3', '16/9', '21/9'
+ */
+function showCropOverlay(ratio) {
+  const overlay = $('crop-overlay');
+  const label = $('crop-ratio-label');
+  const maskTop = document.querySelector('.crop-mask-top');
+  const maskBottom = document.querySelector('.crop-mask-bottom');
+
+  if (!overlay) return;
+
+  // ラベルを更新（例: "16/9" → "16:9"）
+  if (label) label.textContent = ratio.replace('/', ':');
+
+  // ビューファインダーのサイズを取得
+  const vf = $('cam-vf');
+  if (!vf) return;
+  const vfW = vf.clientWidth;
+  const vfH = vf.clientHeight;
+
+  // 現在のビューファインダーのアスペクト比 vs 選択された比率
+  const [rw, rh] = ratio.split('/').map(Number);
+  const targetRatio = rw / rh;
+  const vfRatio = vfW / vfH;
+
+  // マスク（暗くなる部分）の高さを計算
+  let maskH = 0;
+  if (vfRatio > targetRatio) {
+    // ビューファインダーの方が横長：上下をマスク
+    const cropH = vfW / targetRatio;
+    maskH = Math.max(0, (vfH - cropH) / 2);
+  }
+  // 縦長の場合は左右がカットされるが、CSSのobject-fit:coverで自動的に表現される
+
+  if (maskTop) maskTop.style.height = maskH + 'px';
+  if (maskBottom) maskBottom.style.height = maskH + 'px';
+
+  // オーバーレイを表示し、一定時間後に自動的に非表示
+  overlay.style.display = 'flex';
+  overlay.classList.add('show');
+
+  clearTimeout(overlay._hideTimer);
+  overlay._hideTimer = setTimeout(() => {
+    overlay.classList.remove('show');
+    setTimeout(() => { overlay.style.display = 'none'; }, 400);
+  }, 2000);
+}
+
 /**
  * アスペクト比を切り替えます。
  * @param {string} ratio - '4/3', '16/9', '21/9'
@@ -366,6 +430,9 @@ function setAspectRatio(ratio) {
   // プレビュー枠の見た目を更新
   const vf = $("cam-vf");
   if (vf) vf.style.aspectRatio = ratio;
+
+  // クロップオーバーレイを表示して範囲を視覚化
+  showCropOverlay(ratio);
 
   if (camActive) {
     startCam(); // カメラがアクティブなら再起動して制約を適用
@@ -417,11 +484,11 @@ function setAspectRatio(ratio) {
 
       if (Math.abs(diffX) > SWIPE_THRESHOLD) {
         if (diffX > 0) {
-          // 左スワイプ: 次の比率へ (例: 4:3 -> 16:9 -> 21:9)
-          currentRatioIdx = (currentRatioIdx + 1) % RATIOS_ARRAY.length;
-        } else {
-          // 右スワイプ: 前の比率へ (例: 21:9 -> 16:9 -> 4:3)
+          // 左スワイプ: 前の比率へ (例: 21:9 -> 16:9 -> 4:3)
           currentRatioIdx = (currentRatioIdx - 1 + RATIOS_ARRAY.length) % RATIOS_ARRAY.length;
+        } else {
+          // 右スワイプ: 次の比率へ (例: 4:3 -> 16:9 -> 21:9)
+          currentRatioIdx = (currentRatioIdx + 1) % RATIOS_ARRAY.length;
         }
         setAspectRatio(RATIOS_ARRAY[currentRatioIdx]);
       }
@@ -457,18 +524,25 @@ function setAspectRatio(ratio) {
 
     zoomSlider.oninput = async (e) => {
       const zoomValue = parseFloat(e.target.value);
-      if (track) {
+      // camTrack を参照（camera.js のグローバル変数）
+      if (camTrack) {
         try {
-          await track.applyConstraints({
+          await camTrack.applyConstraints({
             advanced: [{ zoom: zoomValue }]
           });
-          zoomLevelDisplay.textContent = `${zoomValue.toFixed(1)}x`;
-          cfg.zoom = zoomValue; // 設定にズーム値を保存
         } catch (err) {
           console.error("Failed to apply zoom constraints:", err);
           showToast("ズーム変更失敗", "error", 2000);
         }
       }
+      // カメラ起動状態に関わらず、数字とスライダー塗りつぶしを即時更新
+      zoomLevelDisplay.textContent = `${zoomValue.toFixed(1)}x`;
+      cfg.zoom = zoomValue;
+      // スライダーの進捗バー（塗りつぶし）を更新
+      const min = parseFloat(e.target.min) || 0.1;
+      const max = parseFloat(e.target.max) || 10;
+      const pct = ((zoomValue - min) / (max - min)) * 100;
+      e.target.style.setProperty('--zoom-progress', pct.toFixed(1) + '%');
     };
   }
 
