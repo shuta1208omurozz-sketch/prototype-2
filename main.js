@@ -103,6 +103,7 @@ function applyCfgToUI() {
 }
 
 
+function bindEvents() {
 document.querySelectorAll('.tab').forEach(btn => {
   btn.onclick = () => { // 即座に反応させるため async はここでは使わない
     const t = btn.dataset.tab;
@@ -384,6 +385,15 @@ document.querySelectorAll('.tab').forEach(btn => {
     }
   });
 
+  // --- サムネイルストリップ表示切替 (修正: イベント登録が欠落していたため追加) ---
+  $('btn-thumb-toggle')?.addEventListener('click', () => {
+    setThumbVisible(!thumbStripVisible);
+  });
+  $('btn-thumb-toggle2')?.addEventListener('click', () => {
+    setThumbVisible(!thumbStripVisible);
+  });
+}
+
 /* ════ 初期化処理 ════ */
 async function init() {
   loadCfg();
@@ -405,7 +415,8 @@ async function init() {
   
   bindEvents();
   initLightboxTouch();
-  
+  initOrientationSensor();
+
   if (cfg.autoStartScan) setTimeout(startScan, 400);
 }
 
